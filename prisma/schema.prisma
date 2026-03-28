@@ -1,0 +1,244 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ========================
+// 用户系统
+// ========================
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  passwordHash  String?
+  image         String?
+  role          UserRole  @default(STUDENT)
+  school        String?
+  grade         String?
+  bio           String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  enrollments   Enrollment[]
+  progress      LessonProgress[]
+  submissions   Submission[]
+  challengeResults ChallengeResult[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+// ========================
+// 课程系统
+// ========================
+model Course {
+  id          String       @id @default(cuid())
+  title       String
+  slug        String       @unique
+  description String       @db.Text
+  coverImage  String?
+  level       CourseLevel   @default(BEGINNER)
+  category    CourseCategory
+  published   Boolean      @default(false)
+  price       Float        @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  chapters    Chapter[]
+  enrollments Enrollment[]
+  tags        String[]
+}
+
+enum CourseLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum CourseCategory {
+  CONTROL        // 控制理论
+  AI_VISION      // AI视觉
+  SLAM_NAV       // SLAM与导航
+  RL             // 强化学习
+  ROS2           // ROS2
+  MECHANICAL     // 机械设计
+  COMPREHENSIVE  // 综合项目
+}
+
+model Chapter {
+  id        String   @id @default(cuid())
+  title     String
+  order     Int
+  courseId  String
+  createdAt DateTime @default(now())
+
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons   Lesson[]
+}
+
+model Lesson {
+  id          String     @id @default(cuid())
+  title       String
+  slug        String
+  order       Int
+  type        LessonType
+  content     String     @db.Text  // Markdown 内容
+  videoUrl    String?
+  duration    Int?       // 分钟
+  chapterId   String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  chapter     Chapter    @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  progress    LessonProgress[]
+  simConfig   SimulationConfig?
+}
+
+enum LessonType {
+  VIDEO       // 视频课
+  ARTICLE     // 图文
+  SIMULATION  // 仿真实验
+  QUIZ        // 测试
+  CHALLENGE   // 挑战
+}
+
+model LessonProgress {
+  id          String   @id @default(cuid())
+  userId      String
+  lessonId    String
+  completed   Boolean  @default(false)
+  progress    Float    @default(0) // 0-100
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+}
+
+model Enrollment {
+  id        String   @id @default(cuid())
+  userId    String
+  courseId   String
+  enrolledAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+}
+
+// ========================
+// 仿真系统
+// ========================
+model SimulationConfig {
+  id          String @id @default(cuid())
+  lessonId    String @unique
+  robotModel  String @default("wheel_leg_bot") // URDF模型名
+  scene       String @default("flat_ground")    // 场景
+  objective   String @db.Text                    // 任务目标描述
+  templateCode String @db.Text                   // 初始代码模板
+  testCases   String @db.Text                    // JSON: 测试用例
+  timeLimit   Int    @default(30)                // 仿真时间限制(秒)
+
+  lesson      Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+}
+
+model Submission {
+  id          String           @id @default(cuid())
+  userId      String
+  code        String           @db.Text
+  status      SubmissionStatus @default(PENDING)
+  score       Float?
+  feedback    String?          @db.Text
+  simResult   String?          @db.Text  // JSON: 仿真结果数据
+  createdAt   DateTime         @default(now())
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum SubmissionStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  ERROR
+}
+
+// ========================
+// 挑战与排行榜
+// ========================
+model Challenge {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @db.Text
+  scene       String
+  robotModel  String   @default("wheel_leg_bot")
+  objective   String   @db.Text
+  templateCode String  @db.Text
+  difficulty  CourseLevel
+  startDate   DateTime?
+  endDate     DateTime?
+  published   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  results     ChallengeResult[]
+}
+
+model ChallengeResult {
+  id          String   @id @default(cuid())
+  userId      String
+  challengeId String
+  code        String   @db.Text
+  score       Float
+  time        Float?   // 完成时间(秒)
+  metadata    String?  @db.Text  // JSON: 详细数据
+  createdAt   DateTime @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, challengeId])
+}
